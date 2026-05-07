@@ -1,6 +1,7 @@
 package com.sky.controller.admin;
 
 import com.sky.constant.JwtClaimsConstant;
+import com.sky.dto.EmployeeDTO;
 import com.sky.dto.EmployeeLoginDTO;
 import com.sky.entity.Employee;
 import com.sky.properties.JwtProperties;
@@ -12,10 +13,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -26,7 +24,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/admin/employee")
 @Slf4j
-@Api("管理员相关接口")
+@Api(tags = "管理员相关接口-EmployeeController类")
 public class EmployeeController {
 
     @Autowired
@@ -73,6 +71,19 @@ public class EmployeeController {
     @PostMapping("/logout")
     @ApiOperation("退出登录方法logout")
     public Result<String> logout() {
+        return Result.success();
+    }
+
+    /**
+     * add new one
+     *
+     * @return
+     */
+    @PostMapping
+    @ApiOperation("add-new-one")
+    public Result save(@RequestBody EmployeeDTO employeeDTO){
+        log.info("新增的员工信息是：{}", employeeDTO);
+        employeeService.save(employeeDTO);
         return Result.success();
     }
 
