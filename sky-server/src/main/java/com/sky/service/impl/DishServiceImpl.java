@@ -2,12 +2,16 @@ package com.sky.service.impl;
 
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
+import com.sky.constant.MessageConstant;
+import com.sky.constant.StatusConstant;
 import com.sky.dto.DishDTO;
 import com.sky.dto.DishPageQueryDTO;
 import com.sky.entity.Dish;
 import com.sky.entity.DishFlavor;
+import com.sky.exception.DeletionNotAllowedException;
 import com.sky.mapper.DishMapper;
 import com.sky.mapper.FlavorMapper;
+import com.sky.mapper.SetmealDishMapper;
 import com.sky.result.PageResult;
 import com.sky.service.DishSercive;
 import com.sky.vo.DishVO;
@@ -25,9 +29,11 @@ import java.util.List;
 public class DishServiceImpl implements DishSercive {
 
     @Autowired
-    DishMapper dishMapper;
+    private DishMapper dishMapper;
     @Autowired
-    FlavorMapper flavorMap;
+    private FlavorMapper flavorMapper;
+    @Autowired
+    private SetmealDishMapper setmealDishMapper;
 
     /**
      * 新增菜品和对应的口味
@@ -36,11 +42,12 @@ public class DishServiceImpl implements DishSercive {
      */
     @Transactional
     public void saveWithFlavor(DishDTO dishDTO) {
+        //从 DTO 里取出属于菜品表的字段
         Dish dish = new Dish();
         BeanUtils.copyProperties(dishDTO, dish);
 
-
         //向菜品表插入1条数据
+        //插入 dish 表后，把数据库生成的自增主键回填到 dish.id 里
         dishMapper.insert(dish);
 
         //获取insert语句生成的主键值
@@ -51,15 +58,11 @@ public class DishServiceImpl implements DishSercive {
             flavors.forEach(dishFlavor -> {
                 dishFlavor.setDishId(id);
             });
-
             //向口味表插入n条数据
-            flavorMap.insert(flavors);
+            flavorMapper.insert(flavors);
         }
-
-
     }
 
-    @Override
     /**
      * 菜品分页查询
      *
@@ -68,9 +71,37 @@ public class DishServiceImpl implements DishSercive {
      */
     public PageResult page(DishPageQueryDTO dishPageQueryDTO) {
         PageHelper.startPage(dishPageQueryDTO.getPage(), dishPageQueryDTO.getPageSize());
-
         Page<DishVO> page = dishMapper.pageQuery(dishPageQueryDTO);
-
         return new PageResult(page.getTotal(), page.getResult());
+    }
+
+    /**
+     * 按菜品id批量删除菜品请求
+     *
+     * @param ids
+     * @return
+     */
+    @Override
+    @Transactional
+    public void delete(List<Long> ids) {
+        //判断当前菜品是否能够删除---是否存在起售中的菜品？？
+        for (Long id : ids){
+            Dish dish = dishMapper.getDishById(id);
+            if (dish.getStatus() == StatusConstant.ENABLE){
+                //当前菜品处于起售中，不能删除
+                throw new DeletionNotAllowedException(MessageConstant.DISH_ON_SALE);
+            }
+        }
+
+        //判断当前菜品是否能够删除---是否被套餐关联了？？
+        List<Long> setId = setmealDishMapper.getSetIdByDishId(ids);
+        if (setId != null && setId.size() > 0){
+            throw new DeletionNotAllowedException(MessageConstant.DISH_BE_RELATED_BY_SETMEAL);
+        }
+        //删除菜品表中的菜品数据
+        for (Long DishId : ids){
+            dishMapper.deleteById(DishId);
+            flavorMapper.deleteByDishId(DishId);
+        }
     }
 }

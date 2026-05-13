@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/admin/dish")
 @Slf4j
@@ -49,4 +51,19 @@ public class DishController {
         PageResult pageResult = dishSercive.page(dishPageQueryDTO);
         return Result.success(pageResult);
     }
+
+    /**
+     * 按菜品id批量删除菜品请求
+     *
+     * @param ids
+     * @return
+     */
+    @DeleteMapping
+    @ApiOperation("按菜品id批量删除菜品请求")
+    public Result delete(@RequestParam List<Long> ids){
+        log.info("按菜品id批量删除菜品请求：{}", ids);
+        dishSercive.delete(ids);
+        return Result.success();
+    }
+
 }
