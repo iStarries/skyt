@@ -13,7 +13,7 @@ import com.sky.mapper.DishMapper;
 import com.sky.mapper.FlavorMapper;
 import com.sky.mapper.SetmealDishMapper;
 import com.sky.result.PageResult;
-import com.sky.service.DishSercive;
+import com.sky.service.DishService;
 import com.sky.vo.DishVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -26,7 +26,7 @@ import java.util.List;
 
 @Service
 @Slf4j
-public class DishServiceImpl implements DishSercive {
+public class DishServiceImpl implements DishService {
 
     @Autowired
     private DishMapper dishMapper;
@@ -34,6 +34,8 @@ public class DishServiceImpl implements DishSercive {
     private FlavorMapper flavorMapper;
     @Autowired
     private SetmealDishMapper setmealDishMapper;
+    @Autowired
+    private DishService dishService;
 
     /**
      * 新增菜品和对应的口味
@@ -102,6 +104,50 @@ public class DishServiceImpl implements DishSercive {
         for (Long DishId : ids){
             dishMapper.deleteById(DishId);
             flavorMapper.deleteByDishId(DishId);
+        }
+    }
+
+    /**
+     * 按菜品id查询菜品及其口味
+     *
+     * @param id
+     * @return
+     */
+    @Override
+    public DishVO getDishByIdWithFlavor(Long id) {
+        Dish dish = dishMapper.getDishById(id);
+        List<DishFlavor> dishFlavors = flavorMapper.getFlavorsById(id);
+
+        DishVO dishVO = new DishVO();
+        BeanUtils.copyProperties(dish, dishVO);
+        dishVO.setFlavors(dishFlavors);
+        return dishVO;
+    }
+
+    /**
+     * 修改菜品及其口味
+     *
+     * @param dishDTO
+     * @return
+     */
+    @Override
+    @Transactional
+    public void updateWithFlavor(DishDTO dishDTO) {
+        //更新菜品信息
+        Dish dish = new Dish();
+        BeanUtils.copyProperties(dishDTO, dish);
+        dishMapper.updateDish(dish);
+
+        //删除旧口味
+        flavorMapper.deleteByDishId(dishDTO.getId());
+
+        //插入新口味
+        List<DishFlavor> flavors = dishDTO.getFlavors();
+        if(flavors != null && flavors.size() != 0){
+            flavors.forEach(dishFlavor -> {
+                dishFlavor.setDishId(dish.getId());
+            });
+            flavorMapper.insert(flavors);
         }
     }
 }
