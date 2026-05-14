@@ -1,7 +1,7 @@
 interface:
   display_name: "Sky"
-  short_description: "Search sky-take-out course materials."
-  default_prompt: "Use $sky to answer a sky-take-out course question from local materials."
+  short_description: "Answer sky-take-out questions from local materials."
+  default_prompt: "Use $sky to answer a sky-take-out learning question from local course materials."
 
 policy:
   allow_implicit_invocation: false

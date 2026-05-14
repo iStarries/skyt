@@ -1,85 +1,74 @@
 ---
 name: sky
-description: [TODO: Complete and informative explanation of what the skill does and when to use it. Include WHEN to use this skill - specific scenarios, file types, or tasks that trigger it.]
+description: Use only when the user explicitly types `$sky` while working in the current sky-take-out project to answer learning questions from local course materials and Java source. Do not invoke implicitly for mentions of 苍穹外卖, day01/day02/day03, interfaces, SQL, class names, module names, or repository files unless `$sky` is present.
 ---
 
 # Sky
 
-## Overview
+Answer sky-take-out learning questions from local project materials only. This is a project-level skill for the current `sky-take-out` workspace and must be used only after an explicit `$sky` invocation.
 
-[TODO: 1-2 sentences explaining what this skill enables]
+## Workflow
 
-## Structuring This Skill
+1. Parse the question for `dayXX`, module name, class name, interface name, SQL term, or learning point.
+2. If the question includes neither `dayXX` nor a module name, ask which day or module the user is studying. Do not search the whole repository.
+3. Search local materials before answering. Prefer `scripts/find_sky_materials.py` from the project root.
+4. Answer with the source first, then the explanation.
+5. If no clear local source is found, answer exactly:
 
-[TODO: Choose the structure that best fits this skill's purpose. Common patterns:
+```text
+本地资料未找到明确出处
+```
 
-**1. Workflow-Based** (best for sequential processes)
-- Works well when there are clear step-by-step procedures
-- Example: DOCX skill with "Workflow Decision Tree" -> "Reading" -> "Creating" -> "Editing"
-- Structure: ## Overview -> ## Workflow Decision Tree -> ## Step 1 -> ## Step 2...
+Do not add general knowledge, guesses, or web-derived explanations after that sentence.
 
-**2. Task-Based** (best for tool collections)
-- Works well when the skill offers different operations/capabilities
-- Example: PDF skill with "Quick Start" -> "Merge PDFs" -> "Split PDFs" -> "Extract Text"
-- Structure: ## Overview -> ## Quick Start -> ## Task Category 1 -> ## Task Category 2...
+## Source Format
 
-**3. Reference/Guidelines** (best for standards or specifications)
-- Works well for brand guidelines, coding standards, or requirements
-- Example: Brand styling with "Brand Guidelines" -> "Colors" -> "Typography" -> "Features"
-- Structure: ## Overview -> ## Guidelines -> ## Specifications -> ## Usage...
+Start every substantive answer with one concise source line:
 
-**4. Capabilities-Based** (best for integrated systems)
-- Works well when the skill provides multiple interrelated features
-- Example: Product Management with "Core Capabilities" -> numbered capability list
-- Structure: ## Overview -> ## Core Capabilities -> ### 1. Feature -> ### 2. Feature...
+```text
+出处：day01 / 讲义 / 苍穹外卖-day01.md
+出处：源码 / DishController.java
+出处：day02 / 接口文档 / 苍穹外卖-管理端接口.html
+```
 
-Patterns can be mixed and matched as needed. Most skills combine patterns (e.g., start with task-based, add workflow for complex operations).
+Use the script's `出处：...` value when available. Keep the source line short; include detailed paths only if the user asks.
 
-Delete this entire "Structuring This Skill" section when done - it's just guidance.]
+## Search Scope
 
-## [TODO: Replace with the first main section based on chosen structure]
+Search only these local materials:
 
-[TODO: Add content here. See examples in existing skills:
-- Code samples for technical skills
-- Decision trees for complex workflows
-- Concrete examples with realistic user requests
-- References to scripts/templates/references as needed]
+- `讲义/dayXX/*.md`
+- `资料/dayXX/**/*.md`
+- `资料/dayXX/**/*.html`
+- `资料/dayXX/**/*.json`
+- `资料/dayXX/**/*.sql`
+- `sky-take-out/**/*.java`
+- top-level `Readme.md`
 
-## Resources (optional)
+Ignore PPT, images, Excel files, build output, IDE metadata, Git internals, and generated dependency folders.
 
-Create only the resource directories this skill actually needs. Delete this section if no resources are required.
+## Retrieval
 
-### scripts/
-Executable code (Python/Bash/etc.) that can be run directly to perform specific operations.
+Run the helper from the project root:
 
-**Examples from other skills:**
-- PDF skill: `fill_fillable_fields.py`, `extract_form_field_info.py` - utilities for PDF manipulation
-- DOCX skill: `document.py`, `utilities.py` - Python modules for document processing
+```powershell
+py skills\sky\scripts\find_sky_materials.py "day02 新增员工接口在哪里？" --day day02 --limit 8
+```
 
-**Appropriate for:** Python scripts, shell scripts, or any executable code that performs automation, data processing, or specific operations.
+For a module-scoped question without a day:
 
-**Note:** Scripts may be executed without loading into context, but can still be read by Codex for patching or environment adjustments.
+```powershell
+py skills\sky\scripts\find_sky_materials.py "员工管理 新增员工接口在哪里？" --module "员工管理" --limit 8
+```
 
-### references/
-Documentation and reference material intended to be loaded into context to inform Codex's process and thinking.
+For class or source questions:
 
-**Examples from other skills:**
-- Product management: `communication.md`, `context_building.md` - detailed workflow guides
-- BigQuery: API reference documentation and query examples
-- Finance: Schema documentation, company policies
+```powershell
+py skills\sky\scripts\find_sky_materials.py "day03 DishController 是什么？" --day day03 --limit 8
+```
 
-**Appropriate for:** In-depth documentation, API references, database schemas, comprehensive guides, or any detailed information that Codex should reference while working.
+If the helper reports `本地资料未找到明确出处`, return that exact sentence and stop.
 
-### assets/
-Files not intended to be loaded into context, but rather used within the output Codex produces.
+## Reference
 
-**Examples from other skills:**
-- Brand styling: PowerPoint template files (.pptx), logo files
-- Frontend builder: HTML/React boilerplate project directories
-- Typography: Font files (.ttf, .woff2)
-
-**Appropriate for:** Templates, boilerplate code, document templates, images, icons, fonts, or any files meant to be copied or used in the final output.
-
----
-
-**Not every skill requires all three types of resources.**
+Read `references/resource-map.md` only when you need a quick reminder of searchable locations, ignored file types, or helper usage.

@@ -13,12 +13,22 @@ from typing import Iterable
 
 
 TEXT_SUFFIXES = {".md", ".html", ".json", ".sql", ".java"}
+MATERIAL_SUFFIXES = {".md", ".html", ".json", ".sql"}
+IGNORED_PARTS = {
+    ".git",
+    ".idea",
+    "target",
+    "node_modules",
+    "node-modules",
+    ".validate-deps",
+}
 DAY_RE = re.compile(r"day\s*0?(\d{1,2})", re.IGNORECASE)
 CJK_RE = re.compile(r"[\u4e00-\u9fff]{2,}")
 IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
+API_PATH_RE = re.compile(r"/[A-Za-z0-9_./{}-]+")
 
 
-@dataclass
+@dataclass(frozen=True)
 class Match:
     score: int
     source: str
@@ -31,17 +41,20 @@ def normalize_day(value: str | None) -> str | None:
     if not value:
         return None
     match = DAY_RE.search(value)
-    if not match:
-        return value.lower() if value.lower().startswith("day") else value
-    return f"day{int(match.group(1)):02d}"
+    if match:
+        return f"day{int(match.group(1)):02d}"
+    lowered = value.lower().strip()
+    if re.fullmatch(r"day\d{1,2}", lowered):
+        return f"day{int(lowered[3:]):02d}"
+    return None
 
 
 def find_project_root(start: Path) -> Path:
     for path in [start, *start.parents]:
         if (path / "pom.xml").exists() and (
-            (path / "sky-server").exists()
-            or (path / "sky-common").exists()
+            (path / "sky-common").exists()
             or (path / "sky-pojo").exists()
+            or (path / "sky-server").exists()
         ):
             return path
     return start
@@ -49,9 +62,8 @@ def find_project_root(start: Path) -> Path:
 
 def find_course_root(project_root: Path) -> Path:
     for path in [project_root, *project_root.parents]:
-        if (path / "讲义").exists() or (path / "资料").exists():
+        if (path / "讲义").exists() or (path / "资料").exists() or (path / "Readme.md").exists():
             return path
-    for path in [project_root, *project_root.parents]:
         if path.name in {"讲义", "资料"}:
             return path.parent
     return project_root
@@ -67,26 +79,30 @@ def read_text(path: Path) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def clean_cjk_term(term: str) -> str:
-    term = re.sub(r"分为?哪?几个阶段", "", term)
-    term = re.sub(r"哪几个阶段", "", term)
+def clean_question_wording(term: str) -> str:
     replacements = (
+        "分哪几个阶段",
+        "分几个阶段",
+        "哪几个阶段",
+        "几个阶段",
+        "分阶段",
         "在哪里",
+        "在哪儿",
         "是什么",
+        "有什么",
         "有哪些",
         "哪几个",
-        "几个",
-        "什么",
         "分为",
         "分哪",
         "接口",
         "功能",
-        "？",
-        "?",
+        "路径",
+        "位置",
     )
     cleaned = term
     for item in replacements:
         cleaned = cleaned.replace(item, "")
+    cleaned = re.sub(r"[分问说讲查找]+$", "", cleaned)
     return cleaned.strip()
 
 
@@ -97,59 +113,89 @@ def query_terms(query: str, day: str | None, module: str | None) -> list[str]:
     if module:
         terms.add(module)
 
+    for api_path in API_PATH_RE.findall(query_without_day):
+        terms.add(api_path)
+
     for ident in IDENT_RE.findall(query_without_day):
         if ident.lower() != "day":
             terms.add(ident)
 
     for cjk in CJK_RE.findall(query_without_day):
         terms.add(cjk)
-        cleaned = clean_cjk_term(cjk)
+        cleaned = clean_question_wording(cjk)
         if len(cleaned) >= 2:
             terms.add(cleaned)
-        for part in re.split(r"[的是和与及或、，。？?]", cleaned):
+        for part in re.split(r"[的是和与及或、，。？?\s]+", cleaned):
             if len(part) >= 2:
                 terms.add(part)
 
-    for token in re.split(r"[\s,，.。:：;；/\\()\[\]{}<>《》\"'`]+", query_without_day):
+    for token in re.split(r"[\s,，。；;：:?？!！()\[\]{}<>《》\"'`]+", query_without_day):
         token = token.strip()
         if len(token) >= 2 and token.lower() != (day or ""):
             terms.add(token)
 
-    return sorted(terms, key=len, reverse=True)
+    return sorted(terms, key=lambda item: (-len(item), item.lower()))
+
+
+def is_day_overview_query(query: str, day: str | None, module: str | None) -> bool:
+    if not day or module:
+        return False
+    cleaned = DAY_RE.sub(" ", query)
+    for word in ("我", "要", "想", "讲", "学习", "学", "开始", "现在", "今天", "一下"):
+        cleaned = cleaned.replace(word, "")
+    cleaned = re.sub(r"[\s,，。；;：:?？!！()\[\]{}<>《》\"'`]+", "", cleaned)
+    return not cleaned
+
+
+def day_dirs(course_root: Path, day: str | None) -> list[str]:
+    if day:
+        return [day]
+
+    days: set[str] = set()
+    for root_name in ("讲义", "资料"):
+        root = course_root / root_name
+        if not root.exists():
+            continue
+        for child in root.iterdir():
+            normalized = normalize_day(child.name)
+            if child.is_dir() and normalized:
+                days.add(normalized)
+    return sorted(days)
+
+
+def is_ignored(path: Path) -> bool:
+    return any(part in IGNORED_PARTS for part in path.parts)
 
 
 def candidate_files(
     project_root: Path,
     course_root: Path,
     day: str | None,
+    module: str | None,
     include_java: bool,
     include_readme: bool,
 ) -> Iterable[Path]:
-    readme_names = ("Readme.md", "README.md", "readme.md")
     if include_readme:
-        for name in readme_names:
+        for name in ("Readme.md", "README.md", "readme.md"):
             readme = course_root / name
             if readme.exists():
                 yield readme
                 break
 
-    days = [day] if day else []
-
-    for day_name in days:
+    for day_name in day_dirs(course_root, day):
         lecture_dir = course_root / "讲义" / day_name
         if lecture_dir.exists():
             yield from lecture_dir.glob("*.md")
 
         material_dir = course_root / "资料" / day_name
         if material_dir.exists():
-            for suffix in (".md", ".html", ".json", ".sql"):
+            for suffix in MATERIAL_SUFFIXES:
                 yield from material_dir.rglob(f"*{suffix}")
 
     if include_java:
         for java_file in project_root.rglob("*.java"):
-            if any(part in {".git", ".idea", "target"} for part in java_file.parts):
-                continue
-            yield java_file
+            if not is_ignored(java_file):
+                yield java_file
 
 
 def source_label(path: Path, project_root: Path, course_root: Path) -> str:
@@ -162,38 +208,50 @@ def source_label(path: Path, project_root: Path, course_root: Path) -> str:
 
     try:
         rel = path.relative_to(course_root)
-        parts = rel.parts
-        if len(parts) >= 3 and parts[0] == "讲义" and parts[1].lower().startswith("day"):
-            return f"{parts[1]} / 讲义 / {path.name}"
-        if len(parts) >= 3 and parts[0] == "资料" and parts[1].lower().startswith("day"):
-            if path.suffix.lower() == ".html":
-                kind = "接口文档"
-            elif path.suffix.lower() == ".sql":
-                kind = "SQL"
-            else:
-                kind = "资料"
-            return f"{parts[1]} / {kind} / {path.name}"
-        if path.name.lower() == "readme.md":
-            return f"Readme.md / {path.name}"
     except ValueError:
-        pass
+        return path.name
 
+    parts = rel.parts
+    if len(parts) >= 3 and parts[0] == "讲义" and parts[1].lower().startswith("day"):
+        return f"{parts[1]} / 讲义 / {path.name}"
+    if len(parts) >= 3 and parts[0] == "资料" and parts[1].lower().startswith("day"):
+        if path.suffix.lower() == ".html":
+            kind = "接口文档" if "项目接口文档" in parts or "接口" in path.name else "资料"
+        elif path.suffix.lower() == ".sql":
+            kind = "SQL"
+        else:
+            kind = "资料"
+        return f"{parts[1]} / {kind} / {path.name}"
+    if path.name.lower() == "readme.md":
+        return "Readme.md"
     return path.name
 
 
-def make_snippet(text: str, terms: list[str], width: int = 160) -> str:
+def relative_path(path: Path, project_root: Path, course_root: Path) -> str:
+    for root in (course_root, project_root):
+        try:
+            return str(path.relative_to(root))
+        except ValueError:
+            continue
+    return str(path)
+
+
+def make_snippet(text: str, terms: list[str], width: int = 180) -> str:
     compact = re.sub(r"\s+", " ", text.replace("\ufeff", "")).strip()
     if not compact:
         return ""
+
     lower = compact.lower()
     best = -1
     for term in terms:
-        idx = lower.find(term.lower())
-        if idx >= 0:
-            best = idx
+        index = lower.find(term.lower())
+        if index >= 0:
+            best = index
             break
+
     if best < 0:
         return compact[:width]
+
     start = max(0, best - width // 2)
     end = min(len(compact), best + width // 2)
     prefix = "..." if start else ""
@@ -203,42 +261,96 @@ def make_snippet(text: str, terms: list[str], width: int = 160) -> str:
 
 def score_text(path: Path, text: str, terms: list[str], query: str) -> int:
     score = 0
-    name = path.name.lower()
-    lower = text.lower()
+    lower_text = text.lower()
+    lower_name = path.name.lower()
+    lower_stem = path.stem.lower()
+    lower_query = query.lower()
+
     for term in terms:
-        t = term.lower()
-        if not t:
+        lowered = term.lower()
+        if not lowered:
             continue
-        if t in name:
-            score += 40
-        count = lower.count(t)
+        if lowered in lower_name:
+            score += 45
+        if lowered == lower_stem:
+            score += 80
+        count = lower_text.count(lowered)
         if count:
-            score += min(80, count * max(4, len(term)))
-    if path.suffix.lower() == ".java" and any(term in path.stem for term in terms):
+            score += min(100, count * max(4, min(len(term), 12)))
+
+    suffix = path.suffix.lower()
+    if score > 0 and suffix == ".html" and any(word in query for word in ("接口", "路径", "文档")):
+        if "项目接口文档" in path.parts or "接口" in path.name:
+            score += 240
+        else:
+            score -= 25
+    if score > 0 and suffix == ".sql" and any(word.lower() in lower_query for word in ("sql", "表", "字段", "数据库")):
+        score += 70
+    if score > 0 and suffix == ".java" and any(
+        word in lower_query for word in ("controller", "service", "mapper", "java", "源码", "类", "方法")
+    ):
         score += 60
-    if score > 0 and path.suffix.lower() == ".html":
-        score += 5
-    if score > 0 and "接口" in query and path.suffix.lower() == ".html":
-        score += 80
-    if score > 0 and any(part.lower().startswith("day") for part in path.parts):
-        score += 10
+    if score > 0 and "讲义" in path.parts:
+        score += 8
     if path.name.lower() == "readme.md":
-        score -= 8
+        score -= 10
     return score
+
+
+def should_include_java(query: str, terms: list[str]) -> bool:
+    lower_query = query.lower()
+    if any(word in lower_query for word in ("controller", "service", "mapper", "java", "源码")):
+        return True
+    if any(word in query for word in ("类", "方法", "代码")):
+        return True
+    return any(term.endswith(("Controller", "Service", "Mapper", "DTO", "VO")) for term in terms)
+
+
+def day_overview_matches(project_root: Path, course_root: Path, day: str, limit: int) -> list[Match]:
+    matches: list[Match] = []
+    lecture_dir = course_root / "讲义" / day
+    if lecture_dir.exists():
+        for path in sorted(lecture_dir.glob("*.md")):
+            text = read_text(path)
+            matches.append(
+                Match(
+                    score=120,
+                    source=source_label(path, project_root, course_root),
+                    path=path,
+                    rel_path=relative_path(path, project_root, course_root),
+                    snippet=make_snippet(text, [day, "课程内容", "课程目标"]),
+                )
+            )
+
+    material_dir = course_root / "资料" / day
+    if material_dir.exists():
+        for path in sorted(material_dir.rglob("*")):
+            if path.is_file() and path.suffix.lower() in MATERIAL_SUFFIXES and not is_ignored(path):
+                text = read_text(path)
+                matches.append(
+                    Match(
+                        score=80,
+                        source=source_label(path, project_root, course_root),
+                        path=path,
+                        rel_path=relative_path(path, project_root, course_root),
+                        snippet=make_snippet(text, [day]),
+                    )
+                )
+    return matches[:limit]
 
 
 def search(query: str, day: str | None, module: str | None, limit: int) -> tuple[list[Match], dict[str, str]]:
     project_root = find_project_root(Path.cwd().resolve())
     course_root = find_course_root(project_root)
     terms = query_terms(query, day, module)
-    include_java = bool(IDENT_RE.search(DAY_RE.sub(" ", query)))
-    include_readme = not day or "readme" in query.lower() or "项目" in query
+    include_java = should_include_java(query, terms)
+    include_readme = bool(day or module) and any(word in query for word in ("项目", "介绍", "架构", "Readme", "README"))
     matches: list[Match] = []
 
     seen: set[Path] = set()
-    for path in candidate_files(project_root, course_root, day, include_java, include_readme):
-        path = path.resolve()
-        if path in seen or path.suffix.lower() not in TEXT_SUFFIXES:
+    for candidate in candidate_files(project_root, course_root, day, module, include_java, include_readme):
+        path = candidate.resolve()
+        if path in seen or path.suffix.lower() not in TEXT_SUFFIXES or is_ignored(path):
             continue
         seen.add(path)
         try:
@@ -248,16 +360,12 @@ def search(query: str, day: str | None, module: str | None, limit: int) -> tuple
         score = score_text(path, text, terms, query)
         if score <= 0:
             continue
-        try:
-            rel_path = str(path.relative_to(course_root))
-        except ValueError:
-            rel_path = str(path.relative_to(project_root)) if path.is_relative_to(project_root) else str(path)
         matches.append(
             Match(
                 score=score,
                 source=source_label(path, project_root, course_root),
                 path=path,
-                rel_path=rel_path,
+                rel_path=relative_path(path, project_root, course_root),
                 snippet=make_snippet(text, terms),
             )
         )
@@ -270,6 +378,9 @@ def search(query: str, day: str | None, module: str | None, limit: int) -> tuple
         "module": module or "",
         "terms": ", ".join(terms),
     }
+    if is_day_overview_query(query, day, module):
+        return day_overview_matches(project_root, course_root, day, limit), meta
+
     return matches[:limit], meta
 
 
@@ -309,7 +420,13 @@ def main() -> int:
     args = parser.parse_args()
 
     day = normalize_day(args.day) or normalize_day(args.query)
-    matches, meta = search(args.query, day, args.module, args.limit)
+    module = args.module.strip() if args.module else None
+
+    if not day and not module:
+        print("请先确认当前学习的是哪个 day 或哪个模块。")
+        return 2
+
+    matches, meta = search(args.query, day, module, args.limit)
 
     if args.json:
         print(
