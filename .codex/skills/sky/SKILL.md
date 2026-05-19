@@ -31,7 +31,7 @@ Use this workflow when the user asks to summarize, review, consolidate, or gener
 3. Use the existing root-level `day03-review.md` as the style reference when available: structured headings, concrete code flows, common mistakes, and a final checklist.
 4. Create or update a root-level file named `dayXX-review.md` unless the user gives another path.
 5. The document must combine:
-   - the day's course outline from `讲义/dayXX/*.md`
+   - the day's course outline from `D:\DESKTOP\java\苍穹外卖\sky-take-out-main\讲义\dayXX\*.md`
    - key business flows and request paths
    - DTO / Entity / VO / Mapper / XML relationships when relevant
    - important code snippets or pseudocode for recall

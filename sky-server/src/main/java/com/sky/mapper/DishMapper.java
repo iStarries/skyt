@@ -50,6 +50,15 @@ public interface DishMapper {
     Dish getDishById(Long id);
 
     /**
+     * 根据套餐id查询关联菜品
+     *
+     * @param setmealId
+     * @return
+     */
+    @Select("select d.* from dish d left join setmeal_dish sd on d.id = sd.dish_id where sd.setmeal_id = #{setmealId}")
+    List<Dish> getBySetmealId(Long setmealId);
+
+    /**
      * 按菜品id删除
      *
      * @param dishId
